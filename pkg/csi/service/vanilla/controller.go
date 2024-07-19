@@ -155,7 +155,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 		vc.Config = vcenterconfig
 		volumeManager, err := cnsvolume.GetManager(ctx, vc, operationStore,
 			true, false,
-			false, cnstypes.CnsClusterFlavorVanilla)
+			false, false, cnstypes.CnsClusterFlavorVanilla)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 		}
@@ -220,7 +220,7 @@ func (c *controller) Init(config *cnsconfig.Config, version string) error {
 			c.managers.VcenterConfigs[vcenterconfig.Host] = vcenterconfig
 			volumeManager, err := cnsvolume.GetManager(ctx, vcenter,
 				operationStore, true, true,
-				multivCenterTopologyDeployment, cnstypes.CnsClusterFlavorVanilla)
+				multivCenterTopologyDeployment, false, cnstypes.CnsClusterFlavorVanilla)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to create an instance of volume manager. err=%v", err)
 			}

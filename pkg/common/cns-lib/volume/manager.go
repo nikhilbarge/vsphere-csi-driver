@@ -73,6 +73,8 @@ const (
 
 	// MbInBytes is the number of bytes in one mebibyte.
 	MbInBytes = int64(1024 * 1024)
+	// fcdQueryRtinfoSkipRuntimeIosz is the version need to set on vc client
+	fcdQueryRuntimeInfoSkipRuntimeIosz = "FCD_QUERY_RTINFO_SKIP_RUNTIME_IOSZ"
 )
 
 // Manager provides functionality to manage volumes.
@@ -235,11 +237,16 @@ type createVolumeTaskDetails struct {
 func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter,
 	operationStore cnsvolumeoperationrequest.VolumeOperationRequest,
 	idempotencyHandlingEnabled, multivCenterEnabled,
-	multivCenterTopologyDeployment bool,
+	multivCenterTopologyDeployment, isStorageQuotaM2FSSEnabled bool,
 	clusterFlavor cnstypes.CnsClusterFlavor) (Manager, error) {
 	log := logger.GetLogger(ctx)
 	managerInstanceLock.Lock()
 	defer managerInstanceLock.Unlock()
+	if isStorageQuotaM2FSSEnabled {
+		log.Infof("Setting version FCD_QUERY_RTINFO_SKIP_RUNTIME_IOSZ to vCenter: %q vim25 client, and cnsclient", vc.Config.Host)
+		vc.Client.Version = fcdQueryRuntimeInfoSkipRuntimeIosz
+		vc.CnsClient.Version = vc.Client.Version
+	}
 	if !multivCenterEnabled {
 		if managerInstance != nil {
 			log.Infof("Retrieving existing defaultManager...")
