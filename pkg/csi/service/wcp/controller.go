@@ -389,7 +389,7 @@ func (c *controller) ReloadConfiguration(reconnectToVCFromNewConfig bool) error 
 				return err
 			}
 		}
-		err := c.manager.VolumeManager.ResetManager(ctx, vcenter)
+		err := c.manager.VolumeManager.ResetManager(ctx, vcenter, isStorageQuotaM2FSSEnabled)
 		if err != nil {
 			return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
 		}

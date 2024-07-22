@@ -73,8 +73,9 @@ const (
 
 	// MbInBytes is the number of bytes in one mebibyte.
 	MbInBytes = int64(1024 * 1024)
+
 	// fcdQueryRtinfoSkipRuntimeIosz is the version need to set on vc client
-	fcdQueryRuntimeInfoSkipRuntimeIosz = "FCD_QUERY_RTINFO_SKIP_RUNTIME_IOSZ"
+	cnsDevVersion = "dev.version"
 )
 
 // Manager provides functionality to manage volumes.
@@ -122,7 +123,7 @@ type Manager interface {
 	// should not be nil.
 	ExpandVolume(ctx context.Context, volumeID string, size int64, extraParams interface{}) (string, error)
 	// ResetManager helps set new manager instance and VC configuration.
-	ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter) error
+	ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter, isStorageQuotaM2FSSEnabled bool) error
 	// ConfigureVolumeACLs configures net permissions for a given CnsVolumeACLConfigureSpec.
 	ConfigureVolumeACLs(ctx context.Context, spec cnstypes.CnsVolumeACLConfigureSpec) error
 	// RegisterDisk registers virtual disks as FCDs using Vslm endpoint.
@@ -242,11 +243,6 @@ func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter,
 	log := logger.GetLogger(ctx)
 	managerInstanceLock.Lock()
 	defer managerInstanceLock.Unlock()
-	if isStorageQuotaM2FSSEnabled {
-		log.Infof("Setting version FCD_QUERY_RTINFO_SKIP_RUNTIME_IOSZ to vCenter: %q vim25 client, and cnsclient", vc.Config.Host)
-		vc.Client.Version = fcdQueryRuntimeInfoSkipRuntimeIosz
-		vc.CnsClient.Version = vc.Client.Version
-	}
 	if !multivCenterEnabled {
 		if managerInstance != nil {
 			log.Infof("Retrieving existing defaultManager...")
@@ -279,6 +275,21 @@ func GetManager(ctx context.Context, vc *cnsvsphere.VirtualCenter,
 	err := managerInstance.initListView(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if isStorageQuotaM2FSSEnabled {
+		log.Infof("use version %s for vCenter client", cnsDevVersion)
+		if managerInstance.virtualCenter.Client != nil {
+			log.Infof("Setting version %s to vCenter: %q vim25 client",
+				cnsDevVersion, managerInstance.virtualCenter.Config.Host)
+			managerInstance.virtualCenter.Client.Version = cnsDevVersion
+		}
+		if managerInstance.virtualCenter.CnsClient != nil {
+			log.Infof("Setting version %s to vCenter: %q cns client",
+				cnsDevVersion, managerInstance.virtualCenter.Config.Host)
+			managerInstance.virtualCenter.CnsClient.Version = cnsDevVersion
+			managerInstance.virtualCenter.CnsClient.Client.Version = cnsDevVersion
+		}
+		log.Infof("Done setting version FCD_QUERY_RTINFO_SKIP_RUNTIME_IOSZ to vCenter: %q vim25 client, and cnsclient", vc.Config.Host)
 	}
 	return managerInstance, nil
 }
@@ -359,11 +370,26 @@ func ClearInvalidTasksFromListView(multivCenterCSITopologyEnabled bool) {
 }
 
 // ResetManager helps set manager instance with new VC configuration.
-func (m *defaultManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter) error {
+func (m *defaultManager) ResetManager(ctx context.Context, vcenter *cnsvsphere.VirtualCenter, isStorageQuotaM2FSSEnabled bool) error {
 	log := logger.GetLogger(ctx)
 	managerInstanceLock.Lock()
 	defer managerInstanceLock.Unlock()
 	log.Infof("Re-initializing defaultManager.virtualCenter")
+	if isStorageQuotaM2FSSEnabled {
+		log.Infof("use version %s for vCenter client", cnsDevVersion)
+		if vcenter.Client != nil {
+			log.Infof("Setting version %s to vCenter: %q vim25 client",
+				cnsDevVersion, vcenter.Config.Host)
+			vcenter.Client.Version = cnsDevVersion
+		}
+		if vcenter.CnsClient != nil {
+			log.Infof("Setting version %s to vCenter: %q cns client",
+				cnsDevVersion, vcenter.Config.Host)
+			vcenter.CnsClient.Version = cnsDevVersion
+			vcenter.CnsClient.Client.Version = cnsDevVersion
+		}
+		log.Infof("Done setting version FCD_QUERY_RTINFO_SKIP_RUNTIME_IOSZ to vCenter: %q vim25 client, and cnsclient", vcenter.Config.Host)
+	}
 	managerInstance.virtualCenter = vcenter
 	m.listViewIf.ResetVirtualCenter(ctx, managerInstance.virtualCenter)
 	log.Infof("Done resetting volume.defaultManager")

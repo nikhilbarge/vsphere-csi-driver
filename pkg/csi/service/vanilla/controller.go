@@ -408,7 +408,7 @@ func (c *controller) ReloadConfiguration() error {
 				return logger.LogNewErrorf(log, "failed to get VirtualCenter. err=%v", err)
 			}
 			vcenter.Config = newVCConfig
-			err := c.managers.VolumeManagers[newVCConfig.Host].ResetManager(ctx, vcenter)
+			err := c.managers.VolumeManagers[newVCConfig.Host].ResetManager(ctx, vcenter, false)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to reset updated VC object in volumemanager for vCenter: %q "+
 					"err=%v", newVCConfig.Host, err)
@@ -460,7 +460,7 @@ func (c *controller) ReloadConfiguration() error {
 				c.authMgr.ResetvCenterInstance(ctx, vcenter)
 				log.Info("Updated vCenter in auth manager")
 			}
-			err = c.manager.VolumeManager.ResetManager(ctx, vcenter)
+			err = c.manager.VolumeManager.ResetManager(ctx, vcenter, false)
 			if err != nil {
 				return logger.LogNewErrorf(log, "failed to reset volume manager. err=%v", err)
 			}

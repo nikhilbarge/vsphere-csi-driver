@@ -145,7 +145,7 @@ func TestSyncerWorkflows(t *testing.T) {
 		t.Fatalf("failed to create an instance of volume manager. err=%v", err)
 	}
 
-	err = volumeManager.ResetManager(ctx, virtualCenter)
+	err = volumeManager.ResetManager(ctx, virtualCenter, false)
 	if err != nil {
 		t.Fatalf("failed to reset volume manager with new vcenter. err=%v", err)
 	}
