@@ -28,7 +28,6 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -104,6 +103,10 @@ func TestSetStatusRegistered(t *testing.T) {
 		}
 	default:
 		t.Error("expected a Normal event to be recorded, got none")
+
+	}
+}
+
 // ── TestHasPassedPhase ────────────────────────────────────────────────────────────────────────────
 
 func TestHasPassedPhase(t *testing.T) {
