@@ -701,16 +701,16 @@ const (
 	// on the supervisor.
 	HostLocalStorageSupportFSS = "host-local-storage-support"
 
-	// DataProtectionSnapshotService is the WCP capability that gates VKS volume restore
+	// VSphereDPLPModernApp is the WCP capability that gates VKS volume restore
 	// (VKSRegisterVolume). It is activated when VC >= 9.1.2, Supervisor >= 9.1.2,
 	// TKG >= 3.8.0, and the dp-operator snapservice has been registered and activated.
 	// The capability string matches the entry in supervisor-capabilities.yaml owned by
 	// the snapservice team.
-	DataProtectionSnapshotService = "supports_data_protection_snapshot_service"
+	VSphereDPLPModernApp = "supports_vsphere_dp_lp_modern_app"
 
 	// VKSRegisterVolume is the guest-cluster FSS that gates the VKSRegisterVolume
 	// operator. Requires both this flag in the guest PVCSI ConfigMap and the
-	// DataProtectionSnapshotService WCP capability on the Supervisor.
+	// VSphereDPLPModernApp WCP capability on the Supervisor.
 	VKSRegisterVolume = "vks-register-volume"
 )
 
@@ -734,7 +734,7 @@ var WCPFeatureStates = map[string]struct{}{
 	SupportsPerNamespaceNetworkProviders:    {},
 	VMPVCStoragePolicyMutability:            {},
 	HostLocalStorageSupport:                 {},
-	DataProtectionSnapshotService:           {},
+	VSphereDPLPModernApp:                    {},
 }
 
 // WCPFeatureStatesSupportsLateEnablement contains capabilities that can be enabled later
@@ -755,7 +755,7 @@ var WCPFeatureStatesSupportsLateEnablement = map[string]struct{}{
 	SupportsPerNamespaceNetworkProviders:    {},
 	VMPVCStoragePolicyMutability:            {},
 	HostLocalStorageSupport:                 {},
-	DataProtectionSnapshotService:           {},
+	VSphereDPLPModernApp:                    {},
 }
 
 // WCPFeatureAssociatedWithPVCSI contains FSS name used in PVCSI and associated WCP Capability name on a
@@ -769,6 +769,6 @@ var WCPFeatureStateAssociatedWithPVCSI = map[string]string{
 	CSI_Backup_API_FSS:                      CSI_Backup_API,
 	VMPVCStoragePolicyMutabilityFSS:         VMPVCStoragePolicyMutability,
 	HostLocalStorageSupportFSS:              HostLocalStorageSupport,
-	VKSRegisterVolume:                       DataProtectionSnapshotService,
+	VKSRegisterVolume:                       VSphereDPLPModernApp,
 	SupportsExposingStoragePolicyAttributes: SupportsExposingStoragePolicyAttributes,
 }
