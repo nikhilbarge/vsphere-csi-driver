@@ -182,58 +182,52 @@ func StartWebhookServer(ctx context.Context, enableWebhookClientCertVerification
 				common.VMPVCStoragePolicyMutabilityFSS)
 		}
 		featureIsVACPolicyMutabilityEnabled = vacPolicyMutabilityPVCSIFSS && vacPolicyMutabilityCapability
-		// Start the late enablement watcher only if the PVCSI internal FSS is enabled, but the current supervisor
-		// capability is disabled.
-		if linkedClonePVCSIFSS && !linkedCloneCapability {
-			gcConfig, configErr := cnsconfig.GetConfig(ctx)
-			if configErr != nil {
-				return fmt.Errorf("failed to read config. Error: %+v", err)
-			}
-			go containerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
-				common.LinkedCloneSupport, gcConfig.GC.Port, gcConfig.GC.Endpoint)
+		// LinkedCloneSupport and VMPVCStoragePolicyMutability are resolved by the ACD at render time
+		// from the tenant-safe, userFacing SupervisorCapabilities CR and delivered via cns-csi.conf
+		// (see IsFSSEnabled's guestCapabilityConfigFields) — this pod never reads the Supervisor-scoped
+		// Capabilities CR directly. The watcher below always runs (not just when a capability is
+		// already enabled) so both late-enablement and future disablement are picked up uniformly: any
+		// cns-csi.conf reload restarts the webhook, which re-evaluates every feature flag from scratch.
+		pvcsiConfigPath := cnsconfig.GetConfigPath(ctx)
+		watcher, err := fsnotify.NewWatcher()
+		if err != nil {
+			log.Errorf("failed to create fsnotify watcher. err=%v", err)
+			return err
 		}
-		if featureIsLinkedCloneSupportEnabled {
-			pvcsiConfigPath := cnsconfig.GetConfigPath(ctx)
-			watcher, err := fsnotify.NewWatcher()
-			if err != nil {
-				log.Errorf("failed to create fsnotify watcher. err=%v", err)
-				return err
-			}
-			go func() {
-				for {
-					log.Debugf("Waiting for event on fsnotify watcher")
-					select {
-					case event, ok := <-watcher.Events:
-						if !ok {
-							return
-						}
-						log.Debugf("fsnotify event: %q", event.String())
-						if event.Op&fsnotify.Remove == fsnotify.Remove {
-							// restart the webhook
-							os.Exit(1)
-						}
-					case err, ok := <-watcher.Errors:
-						if !ok {
-							return
-						}
-						log.Errorf("fsnotify error: %+v", err)
+		go func() {
+			for {
+				log.Debugf("Waiting for event on fsnotify watcher")
+				select {
+				case event, ok := <-watcher.Events:
+					if !ok {
+						return
 					}
-					log.Debugf("fsnotify event processed")
+					log.Debugf("fsnotify event: %q", event.String())
+					if event.Op&fsnotify.Remove == fsnotify.Remove {
+						// restart the webhook
+						os.Exit(1)
+					}
+				case err, ok := <-watcher.Errors:
+					if !ok {
+						return
+					}
+					log.Errorf("fsnotify error: %+v", err)
 				}
-			}()
-			cfgDirPath := filepath.Dir(pvcsiConfigPath)
-			log.Infof("Adding watch on path: %q", cfgDirPath)
-			err = watcher.Add(cfgDirPath)
-			if err != nil {
-				log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
-				return err
+				log.Debugf("fsnotify event processed")
 			}
-			log.Infof("Adding watch on path: %q", cnsconfig.DefaultpvCSIProviderPath)
-			err = watcher.Add(cnsconfig.DefaultpvCSIProviderPath)
-			if err != nil {
-				log.Errorf("failed to watch on path: %q. err=%v", cnsconfig.DefaultpvCSIProviderPath, err)
-				return err
-			}
+		}()
+		cfgDirPath := filepath.Dir(pvcsiConfigPath)
+		log.Infof("Adding watch on path: %q", cfgDirPath)
+		err = watcher.Add(cfgDirPath)
+		if err != nil {
+			log.Errorf("failed to watch on path: %q. err=%v", cfgDirPath, err)
+			return err
+		}
+		log.Infof("Adding watch on path: %q", cnsconfig.DefaultpvCSIProviderPath)
+		err = watcher.Add(cnsconfig.DefaultpvCSIProviderPath)
+		if err != nil {
+			log.Errorf("failed to watch on path: %q. err=%v", cnsconfig.DefaultpvCSIProviderPath, err)
+			return err
 		}
 		startPVCSIWebhookManager(ctx)
 	} else if clusterFlavor == cnstypes.CnsClusterFlavorVanilla {

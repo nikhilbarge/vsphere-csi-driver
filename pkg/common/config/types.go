@@ -184,6 +184,22 @@ type GCConfig struct {
 	// (stretched Supervisor or WorkloadDomainIsolation enabled).
 	// Populated from vspherePVCSI.zone via cns-csi.conf topology-enabled field.
 	TopologyEnabled bool `gcfg:"topology-enabled"`
+	// WorkloadDomainIsolationEnabled mirrors the Supervisor's WorkloadDomainIsolation
+	// capability directly (unlike TopologyEnabled, which also folds in stretchedSupervisor).
+	// Populated from vspherePVCSI.capabilities.workload_domain_isolation via cns-csi.conf.
+	WorkloadDomainIsolationEnabled bool `gcfg:"workload-domain-isolation-enabled"`
+	// LinkedCloneSupportEnabled mirrors the Supervisor's LinkedCloneSupport capability.
+	// Populated from vspherePVCSI.capabilities.linked_clone_support via cns-csi.conf.
+	LinkedCloneSupportEnabled bool `gcfg:"linked-clone-support-enabled"`
+	// VsanFileVolumeServiceEnabled mirrors the Supervisor's VsanFileVolumeService capability.
+	// Populated from vspherePVCSI.capabilities.vsan_file_volume_service via cns-csi.conf.
+	VsanFileVolumeServiceEnabled bool `gcfg:"vsan-file-volume-service-enabled"`
+	// CSIBackupAPIEnabled mirrors the Supervisor's CSI_Backup_API capability.
+	// Populated from vspherePVCSI.capabilities.csi_backup_api via cns-csi.conf.
+	CSIBackupAPIEnabled bool `gcfg:"csi-backup-api-enabled"`
+	// VMPVCStoragePolicyMutabilityEnabled mirrors the Supervisor's VMPVCStoragePolicyMutability capability.
+	// Populated from vspherePVCSI.capabilities.vm_pvc_storage_policy_mutability via cns-csi.conf.
+	VMPVCStoragePolicyMutabilityEnabled bool `gcfg:"vm-pvc-storage-policy-mutability-enabled"`
 }
 
 // SnapshotConfig contains snapshot configuration.

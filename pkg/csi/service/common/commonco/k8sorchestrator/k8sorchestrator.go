@@ -1435,6 +1435,28 @@ func SetWcpCapabilitiesMap(ctx context.Context, wcpCapabilityApiClient client.Cl
 	return nil
 }
 
+// guestCapabilityConfigFields maps a WCP capability's raw name to a reader of its
+// value out of GCConfig, for capabilities the ACD resolves at render time (from the
+// tenant-safe, userFacing SupervisorCapabilities CR) and delivers via cns-csi.conf,
+// instead of the guest pod reading the Supervisor-scoped Capabilities CR directly.
+var guestCapabilityConfigFields = map[string]func(*cnsconfig.Config) bool{
+	common.WorkloadDomainIsolation: func(cfg *cnsconfig.Config) bool {
+		return cfg.GC.WorkloadDomainIsolationEnabled
+	},
+	common.LinkedCloneSupport: func(cfg *cnsconfig.Config) bool {
+		return cfg.GC.LinkedCloneSupportEnabled
+	},
+	common.VsanFileVolumeService: func(cfg *cnsconfig.Config) bool {
+		return cfg.GC.VsanFileVolumeServiceEnabled
+	},
+	common.CSI_Backup_API: func(cfg *cnsconfig.Config) bool {
+		return cfg.GC.CSIBackupAPIEnabled
+	},
+	common.VMPVCStoragePolicyMutability: func(cfg *cnsconfig.Config) bool {
+		return cfg.GC.VMPVCStoragePolicyMutabilityEnabled
+	},
+}
+
 // IsFSSEnabled utilises the cluster flavor to check their corresponding FSS
 // maps and returns if the feature state switch is enabled for the given feature
 // indicated by featureName.
@@ -1558,6 +1580,22 @@ func (c *K8sOrchestrator) IsFSSEnabled(ctx context.Context, featureName string) 
 				return true
 			}
 
+			// LinkedCloneSupport, VsanFileVolumeService, CSI_Backup_API, and VMPVCStoragePolicyMutability
+			// are resolved by the ACD at render time from the tenant-safe, userFacing SupervisorCapabilities
+			// CR, and delivered via the cns-csi.conf config file (see GCConfig.*Enabled) — the guest pod no
+			// longer needs direct RBAC read access to the Supervisor-scoped Capabilities CR for these.
+			if wcpFeatureState, exists := common.WCPFeatureStateAssociatedWithPVCSI[featureName]; exists {
+				if configDrivenState, exists := guestCapabilityConfigFields[wcpFeatureState]; exists {
+					cfg, err := cnsconfig.GetConfig(ctx)
+					if err != nil {
+						log.Errorf("failed to read config. Error: %+v", err)
+						return false
+					}
+					enabled := configDrivenState(cfg)
+					log.Debugf("Supervisor capability %q read from cns-csi.conf is set to %t", wcpFeatureState, enabled)
+					return enabled
+				}
+			}
 			// If PVCSI FSS has associated WCP capability in supervisor cluster, then check if that WCP
 			// capability is enabled or disabled by fetching its value from capabilities CR on supervisor.
 			if wcpFeatureState, exists := common.WCPFeatureStateAssociatedWithPVCSI[featureName]; exists {

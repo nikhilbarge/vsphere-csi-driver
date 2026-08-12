@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -37,7 +38,6 @@ import (
 	snapshotterClientSet "github.com/kubernetes-csi/external-snapshotter/client/v8/clientset/versioned"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	vmoperatortypes "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
-	cnstypes "github.com/vmware/govmomi/cns/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -173,6 +173,60 @@ func New() csitypes.CnsController {
 	return &controller{}
 }
 
+// guestCapabilitySnapshot fields mirror GCConfig's *Enabled capability fields, resolved by the
+// ACD at render time and delivered via cns-csi.conf.
+type guestCapabilitySnapshot struct {
+	workloadDomainIsolation      bool
+	linkedCloneSupport           bool
+	vsanFileVolumeService        bool
+	csiBackupAPI                 bool
+	vmPvcStoragePolicyMutability bool
+}
+
+// snapshotGuestCapabilities captures the current cns-csi.conf-resolved capability values.
+func snapshotGuestCapabilities(config *commonconfig.Config) guestCapabilitySnapshot {
+	return guestCapabilitySnapshot{
+		workloadDomainIsolation:      config.GC.WorkloadDomainIsolationEnabled,
+		linkedCloneSupport:           config.GC.LinkedCloneSupportEnabled,
+		vsanFileVolumeService:        config.GC.VsanFileVolumeServiceEnabled,
+		csiBackupAPI:                 config.GC.CSIBackupAPIEnabled,
+		vmPvcStoragePolicyMutability: config.GC.VMPVCStoragePolicyMutabilityEnabled,
+	}
+}
+
+// restartOnLateCapabilityEnablement re-reads cns-csi.conf after a reload and restarts the
+// container (os.Exit(1), picked back up by the pod's restart policy) if any capability flipped
+// from false to true since startup — the same outcome HandleLateEnablementOfCapability achieved
+// via a live Capabilities API poll, now driven off the ACD-rendered config file instead.
+func restartOnLateCapabilityEnablement(ctx context.Context, enabledAtStartup guestCapabilitySnapshot) {
+	log := logger.GetLogger(ctx)
+	cfg, err := commonconfig.GetConfig(ctx)
+	if err != nil {
+		log.Errorf("failed to read config while checking for late capability enablement. err: %+v", err)
+		return
+	}
+	current := snapshotGuestCapabilities(cfg)
+	transitions := []struct {
+		name       string
+		wasEnabled bool
+		nowEnabled bool
+	}{
+		{"WorkloadDomainIsolation", enabledAtStartup.workloadDomainIsolation, current.workloadDomainIsolation},
+		{"LinkedCloneSupport", enabledAtStartup.linkedCloneSupport, current.linkedCloneSupport},
+		{"VsanFileVolumeService", enabledAtStartup.vsanFileVolumeService, current.vsanFileVolumeService},
+		{"CSI_Backup_API", enabledAtStartup.csiBackupAPI, current.csiBackupAPI},
+		{"VMPVCStoragePolicyMutability", enabledAtStartup.vmPvcStoragePolicyMutability,
+			current.vmPvcStoragePolicyMutability},
+	}
+	for _, t := range transitions {
+		if !t.wasEnabled && t.nowEnabled {
+			log.Infof("Capability %s changed state to true in cns-csi.conf. "+
+				"Restarting the container as capability has changed.", t.name)
+			os.Exit(1)
+		}
+	}
+}
+
 // Init is initializing controller struct
 func (c *controller) Init(config *commonconfig.Config, version string) error {
 	ctx, log := logger.GetNewContextWithLogger()
@@ -221,35 +275,19 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 		return err
 	}
 
-	// If workload-domain-isolation FSS is not enabled on guest cluster, then check the capabilities CR in
-	// supervisor cluster every 2 mins to check if there is a change in Workload_Domain_Isolation_Supported
-	// capability value from false to true. If so, restart the CSI controller container on guest.
-	// NOTE: We can add other capabilities here when similar functionality is required. For
-	// workload-isolation-domain feature we are restarting the container when capability changes dynamically from
-	// false to true, but for other features instead of restarting CSI container, if possible we can implement
-	// some init() function which can initialize required things when capability value changes from false to true.
+	// Capability values (WorkloadDomainIsolation, LinkedCloneSupport, VsanFileVolumeService,
+	// CSI_Backup_API, VMPVCStoragePolicyMutability) are resolved by the ACD at render time from
+	// the tenant-safe, userFacing SupervisorCapabilities CR and delivered via cns-csi.conf — the
+	// guest pod never reads the Supervisor-scoped Capabilities CR directly. Late enablement (a
+	// capability flipping false->true after this container started) is detected by the fsnotify
+	// watcher below on every cns-csi.conf reload, via capabilitiesEnabledSinceStartup, instead of
+	// a live-API poll ticker.
 	isWorkloadDomainIsolationSupported := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx,
 		common.WorkloadDomainIsolationFSS)
-	linkedClonePVCSIFSS := commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(ctx, common.LinkedCloneSupportFSS)
-	linkedCloneCapability := commonco.ContainerOrchestratorUtility.IsFSSEnabled(ctx, common.LinkedCloneSupportFSS)
-	if !isWorkloadDomainIsolationSupported {
-		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
-			common.WorkloadDomainIsolation, config.GC.Port, config.GC.Endpoint)
-	}
-	// Start the late enablement watcher only if the PVCSI internal FSS is enabled, but the current supervisor
-	// capability is disabled.
-	if linkedClonePVCSIFSS && !linkedCloneCapability {
-		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
-			common.LinkedCloneSupport, config.GC.Port, config.GC.Endpoint)
-	}
-	vsanFileVolumeServicePVCSIFSS := commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(
-		ctx, common.VsanFileVolumeServiceSupportFSS)
 	vsanFileServiceEnabled := commonco.ContainerOrchestratorUtility.IsFSSEnabled(
 		ctx, common.VsanFileVolumeServiceSupportFSS)
-	if vsanFileVolumeServicePVCSIFSS && !vsanFileServiceEnabled {
-		go commonco.ContainerOrchestratorUtility.HandleLateEnablementOfCapability(ctx, cnstypes.CnsClusterFlavorGuest,
-			common.VsanFileVolumeService, config.GC.Port, config.GC.Endpoint)
-	}
+	vsanFileVolumeServicePVCSIFSS := commonco.ContainerOrchestratorUtility.IsPVCSIFSSEnabled(
+		ctx, common.VsanFileVolumeServiceSupportFSS)
 	IsVsanFileVolumeServiceEnabled = vsanFileVolumeServicePVCSIFSS && vsanFileServiceEnabled
 	if isWorkloadDomainIsolationSupported {
 		err := commonco.ContainerOrchestratorUtility.StartZonesInformer(ctx, c.restClientConfig, c.supervisorNamespace)
@@ -264,6 +302,14 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 		log.Errorf("failed to create fsnotify watcher. err=%v", err)
 		return err
 	}
+
+	// Snapshot of capability values as resolved from cns-csi.conf at container startup. On every
+	// config reload (triggered by the fsnotify watcher below, when a re-mounted cns-csi.conf
+	// signals a new value from the ACD), restartOnLateCapabilityEnablement compares the freshly
+	// reloaded config against this snapshot and restarts the container if any capability flipped
+	// from false to true, matching the previous live-API poll-and-restart behavior in
+	// HandleLateEnablementOfCapability without the guest pod needing direct Capabilities RBAC.
+	capabilitiesEnabledAtStartup := snapshotGuestCapabilities(config)
 
 	go func() {
 		for {
@@ -284,6 +330,7 @@ func (c *controller) Init(config *commonconfig.Config, version string) error {
 						log.Errorf("failed to reload configuration. will retry again in 5 seconds. err: %+v", reloadConfigErr)
 						time.Sleep(5 * time.Second)
 					}
+					restartOnLateCapabilityEnablement(ctx, capabilitiesEnabledAtStartup)
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
